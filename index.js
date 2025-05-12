@@ -135,7 +135,19 @@ async function run() {
 
         })
 
-        
+          // Post a writers
+        app.post('/writers', VerifyJwt, VerifyAdmin, async (req, res) => {
+            const writer = req.body;
+            const result = await writerCollections.insertOne(writer)
+            res.send(result)
+        })
+
+         // Get All writers
+        app.get('/writers', async (req, res) => {
+            const result = await writerCollections.find().toArray()
+            res.send(result)
+        })
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
