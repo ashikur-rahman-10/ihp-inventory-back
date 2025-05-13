@@ -2,25 +2,27 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Middleware
+app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://pixventory.web.app"],
+    origin: ["http://localhost:5173", "https://ihp-inv.web.app"],
   })
 );
 
-// app.use(cors());
-app.use(express.json());
-
+// Default route
 app.get("/", (req, res) => {
-  res.send("server is running.......");
+  res.send("Server is running...");
 });
 
+// MongoDB connection URI
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.a46jnic.mongodb.net/?retryWrites=true&w=majority`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+// MongoClient setup
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -29,137 +31,160 @@ const client = new MongoClient(uri, {
   },
 });
 
+// Main function
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    client.connect();
-    const usersCollections = client.db("IHP_INV").collection("users");
-    const booksCollections = client.db("IHP_INV").collection("books");
-    const writersCollections = client.db("IHP_INV").collection("writers");
+    await client.connect();
 
-    // Users Api
-        app.post('/users', async (req, res) => {
-            const user = req?.body;
-            const query = { email: user?.email }
-            const existingUser = await usersCollections.findOne(query)
-            if (existingUser) {
-                return res.send({ message: "user already exist" })
-            }
-            const result = await usersCollections.insertOne(user);
-            res.send(result)
-        })
+    const db = client.db("IHP_INV");
+    const usersCollection = db.collection("users");
+    const booksCollection = db.collection("books");
+    const writersCollection = db.collection("writers");
 
-        // Get All Users
-        app.get('/users', async (req, res) => {
-            const result = await usersCollections.find().toArray()
-            res.send(result)
-        })
+    // POST: Add new user
+    app.post("/users", async (req, res) => {
+      try {
+        const user = req.body;
+        if (!user || !user.email) {
+          return res.status(400).json({ message: "Invalid user data" });
+        }
 
-        // Get user by email
-        app.get('/users/:email', async (req, res) => {
-            const email = req.params.email;
-            const filter = { email: email };
-            const result = await usersCollections.findOne(filter)
-            res.send(result)
-        })
-
-        // Post a book
-        app.post('/books', VerifyJwt, VerifyAdmin, async (req, res) => {
-            const book = req.body;
-            const result = await booksCollections.insertOne(book)
-            res.send(result)
-        })
-        // Get all book
-        app.get('/all-books', async (req, res) => {
-            const result = await booksCollections.find().toArray()
-            res.send(result)
-        })
-
-        // Get a book by id
-        app.get(`/books/:id`, async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const result = await booksCollections.findOne(query);
-            res.send(result);
+        const existingUser = await usersCollection.findOne({
+          email: user.email,
         });
-        // Delete a book by id
-        app.delete(`/books/:id`, VerifyJwt, VerifyAdmin, async (req, res) => {
-            const id = req.params.id;
-            // console.log(id);
-            const query = { _id: new ObjectId(id) };
-            const result = await booksCollections.deleteOne(query);
-            res.send(result);
-        });
-        // Update a book
-        app.patch('/books/:id', VerifyJwt, VerifyAdmin, async (req, res) => {
-            const id = req.params.id;
-            const filter = { _id: new ObjectId(id) };
-            const updatedBook = req.body;
-            // const options = { upsert: true };
-            const updateDoc = {
-                $set: {
-                    bookName: updatedBook.bookName,
-                    price: updatedBook.price,
-                    quantity: updatedBook.quantity,
-                    discounts: updatedBook.discounts,
-                    category: updatedBook.category,
-                    writerName: updatedBook.writerName,
-                    publications: updatedBook.publications,
-                    descriptions: updatedBook.descriptions,
-                    keywords: updatedBook.keywords,
-                    bookName_en: updatedBook.bookName_en,
-                    buyingPrice: updatedBook.buyingPrice,
+        if (existingUser) {
+          return res.status(409).json({ message: "User already exists" });
+        }
 
-                }
-            }
-            const result = await booksCollections.updateOne(filter, updateDoc)
-            res.send(result)
+        const result = await usersCollection.insertOne(user);
+        res.status(201).json(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error while adding user" });
+      }
+    });
 
-        })
+    // GET: All users
+    app.get("/users", async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
 
-        // Re-stock books
-        app.patch('/books/restock/:id', VerifyJwt, VerifyAdmin, async (req, res) => {
-            const id = req.params.id;
-            const restock = req.body;
-            const filter = { _id: new ObjectId(id) };
+    // GET: User by email
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await usersCollection.findOne({ email });
+      res.send(result);
+    });
 
-            const thisBook = await booksCollections.findOne(filter);
-            const updateDoc = {
-                $set: {
-                    quantity: parseInt(thisBook?.quantity) + parseInt(restock?.quantity)
-                },
-            };
+    // POST: Add a book
+    app.post("/books", async (req, res) => {
+      try {
+        const book = req.body;
+        if (!book || typeof book !== "object") {
+          return res.status(400).json({ message: "Invalid book data" });
+        }
+        const result = await booksCollection.insertOne(book);
+        res.status(201).json(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error while adding book" });
+      }
+    });
 
-            const result = await booksCollections.updateOne(filter, updateDoc)
-            res.send(result)
+    // GET: All books
+    app.get("/books", async (req, res) => {
+      const result = await booksCollection.find().toArray();
+      res.send(result);
+    });
 
-        })
+    // Get a book by id
+    app.get(`/books/:id`, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await booksCollection.findOne(query);
+      res.send(result);
+    });
 
-          // Post a writers
-        app.post('/writers', VerifyJwt, VerifyAdmin, async (req, res) => {
-            const writer = req.body;
-            const result = await writerCollections.insertOne(writer)
-            res.send(result)
-        })
+    // Delete a book by id
+    app.delete(`/books/:id`, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await booksCollection.deleteOne(query);
+      res.send(result);
+    });
 
-         // Get All writers
-        app.get('/writers', async (req, res) => {
-            const result = await writerCollections.find().toArray()
-            res.send(result)
-        })
+    // Update a book
+    app.patch("/books/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedBook = req.body;
+      // const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          bookName: updatedBook.bookName,
+          price: updatedBook.price,
+          quantity: updatedBook.quantity,
+          writerName: updatedBook.writerName,
+          keywords: updatedBook.keywords,
+          buyingPrice: updatedBook.buyingPrice,
+        },
+      };
+      const result = await booksCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
 
+    // Re-stock books
+    app.patch("/books/restock/:id",async (req, res) => {
+        const id = req.params.id;
+        const restock = req.body;
+        const filter = { _id: new ObjectId(id) };
 
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
+        const thisBook = await booksCollection.findOne(filter);
+        const updateDoc = {
+          $set: {
+            quantity:
+              parseInt(thisBook?.quantity) + parseInt(restock?.quantity),
+          },
+        };
+
+        const result = await booksCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      }
     );
-  } finally {
-    
+
+    // POST: Add a writer
+    app.post("/writers", async (req, res) => {
+      try {
+        const writer = req.body;
+        if (!writer || typeof writer !== "object") {
+          return res.status(400).json({ message: "Invalid writer data" });
+        }
+        const result = await writersCollection.insertOne(writer);
+        res.status(201).json(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error while adding writer" });
+      }
+    });
+
+    // GET: All writers
+    app.get("/writers", async (req, res) => {
+      const result = await writersCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Ping MongoDB
+    await client.db("admin").command({ ping: 1 });
+    console.log("Pinged MongoDB! Successfully connected.");
+  } catch (err) {
+    console.error("Failed to connect to MongoDB:", err);
   }
 }
+
 run().catch(console.dir);
 
+// Start server
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+  console.log(`Server is listening on port ${port}`);
 });
